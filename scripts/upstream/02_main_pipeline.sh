@@ -1,17 +1,17 @@
 #!/bin/bash
 set -e
 
-# --- run_pipeline_genomic.sh (v4.6 - Versión Definitiva) ---
+# --- run_pipeline_genomic.sh (v4.6 - Final Version) ---
 #
-# Lógica:
-# 1. Comando fastp en UNA LÍNEA para evitar errores de '\'.
-# 2. Se usa --length_limit 200 (para fastp v1.0.1).
-# 3. Se quita --strata de bowtie (para evitar warnings).
-# 4. Se usa --trim_poly_x para recorte agresivo de PolyA.
+# Logic:
+# 1. fastp command on ONE LINE to avoid '\' continuation errors.
+# 2. Used --length_limit 200 (for fastp v1.0.1).
+# 3. Removed --strata from bowtie (to avoid warnings).
+# 4. Used --trim_poly_x for aggressive PolyA trimming.
 #
 # -----------------------------------------------------------------
 
-# --- CONFIGURACIÓN CRÍTICA (Tus archivos) ---
+# --- CRITICAL CONFIGURATION (Your files) ---
 REF_FASTA="04_references/GCF_000001635.20_GRCm38_genomic.fna"
 REF_GFF="04_references/mm10.RNA_full.custom.gtf"
 REF_BOWTIE_INDEX="04_references/GRCm38_genomic"
@@ -21,48 +21,48 @@ DOCKER_CMD="sudo docker run --rm --user $(id -u):$(id -g) -v $(pwd):/data ${DOCK
 
 # -----------------------------------------------------------------
 
-echo "--- INICIO DEL PIPELINE (v4.6 - Versión Definitiva) ---"
+echo "--- STARTING PIPELINE (v4.6 - Final Version) ---"
 
-# --- PASO 1: QC INICIAL ---
-echo "--- PASO 1: Iniciando QC de datos crudos... ---"
+# --- STEP 1: INITIAL QC ---
+echo "--- STEP 1: Starting raw data QC... ---"
 for fq1 in 00_data_raw/*_R1_*.fastq.gz; do
     fq2=$(echo ${fq1} | sed 's/_R1_/_R2_/')
     SAMPLE_BASENAME=$(basename ${fq1})
     SAMPLE=$(echo ${SAMPLE_BASENAME} | sed 's/_R1_.*.fastq.gz//')
-    echo "Procesando FastQC para: ${SAMPLE}"
+    echo "Processing FastQC for: ${SAMPLE}"
     $DOCKER_CMD fastqc -o 01_qc_raw -t 4 ${fq1} ${fq2}
 done
 
-# --- PASO 2: TRIMMING (Comando en una sola línea) ---
-echo "--- PASO 2: Iniciando trimming (Comando en una línea)... ---"
+# --- STEP 2: TRIMMING (One-line command) ---
+echo "--- STEP 2: Starting trimming (One-line command)... ---"
 mkdir -p 99_reports/fastp
 
 for fq1 in 00_data_raw/*_R1_*.fastq.gz; do
     fq2=$(echo ${fq1} | sed 's/_R1_/_R2_/')
     SAMPLE_BASENAME=$(basename ${fq1})
     SAMPLE=$(echo ${SAMPLE_BASENAME} | sed 's/_R1_.*.fastq.gz//')
-    echo "Procesando fastp para: ${SAMPLE}"
+    echo "Processing fastp for: ${SAMPLE}"
 
-    # --- CAMBIO: Comando fastp completo en UNA LÍNEA para evitar errores de formato ---
+    # --- CHANGE: Complete fastp command on ONE LINE to avoid formatting errors ---
     $DOCKER_CMD fastp -i ${fq1} -I ${fq2} -o 02_trimmed/${SAMPLE}.trimmed_R1.fastq.gz -O 02_trimmed/${SAMPLE}.trimmed_R2.fastq.gz -h 99_reports/fastp/${SAMPLE}.fastp.html -j 99_reports/fastp/${SAMPLE}.fastp.json --trim_front1=3 -a AAAAAAAAAA --trim_poly_x --length_required 15 -q 20 --length_limit 200
 
 done
 
-# --- PASO 3: QC POST-TRIMMING ---
-echo "--- PASO 3: Iniciando QC de datos limpios... ---"
+# --- STEP 3: POST-TRIMMING QC ---
+echo "--- STEP 3: Starting clean data QC... ---"
 $DOCKER_CMD fastqc -o 03_qc_trimmed -t 4 02_trimmed/*.trimmed_R1.fastq.gz
 
-# --- PASO 4.1: CONSTRUIR ÍNDICE DE REFERENCIA (Genoma) ---
-echo "--- PASO 4.1: Construyendo índice Bowtie del genoma (GRCm38)... ---"
+# --- STEP 4.1: BUILD REFERENCE INDEX (Genome) ---
+echo "--- STEP 4.1: Building Bowtie genome index (GRCm38)... ---"
 $DOCKER_CMD bowtie-build ${REF_FASTA} ${REF_BOWTIE_INDEX}
 
-# --- PASO 4.2: ALINEAMIENTO Y ORDENADO (Corregido) ---
-echo "--- PASO 4.2: Iniciando alineamiento al genoma... ---"
+# --- STEP 4.2: ALIGNMENT AND SORTING ---
+echo "--- STEP 4.2: Starting genome alignment... ---"
 for fq1_trimmed in 02_trimmed/*.trimmed_R1.fastq.gz; do
     SAMPLE=$(basename ${fq1_trimmed} .trimmed_R1.fastq.gz)
-    echo "Alineando: ${SAMPLE}"
+    echo "Aligning: ${SAMPLE}"
 
-    # 1. Alineamiento (CORREGIDO: se quitó --strata)
+    # 1. Alignment (CORRECTED: removed --strata)
     $DOCKER_CMD bowtie \
         -x ${REF_BOWTIE_INDEX} \
         -q ${fq1_trimmed} \
@@ -70,24 +70,24 @@ for fq1_trimmed in 02_trimmed/*.trimmed_R1.fastq.gz; do
         -v 1 -k 1 --best \
         --un 05_mapping/${SAMPLE}.unmapped.fq
 
-    # 2. Convertir SAM a BAM
+    # 2. Convert SAM to BAM
     $DOCKER_CMD samtools view -bS \
         05_mapping/${SAMPLE}.sam \
         -o 05_mapping/${SAMPLE}.bam
 
-    # 3. Ordenar el BAM
+    # 3. Sort the BAM
     $DOCKER_CMD samtools sort \
         05_mapping/${SAMPLE}.bam \
         -o 05_mapping/${SAMPLE}.sorted.bam
 
-    # 4. Indexar el BAM
+    # 4. Index the BAM
     $DOCKER_CMD samtools index 05_mapping/${SAMPLE}.sorted.bam
 
     rm 05_mapping/${SAMPLE}.sam 05_mapping/${SAMPLE}.bam
 done
 
-# --- PASO 5: CUANTIFICACIÓN (Con GTF personalizado) ---
-echo "--- PASO 5: Iniciando cuantificación (GTF personalizado)... ---"
+# --- STEP 5: QUANTIFICATION (With custom GTF) ---
+echo "--- STEP 5: Starting quantification (Custom GTF)... ---"
 BAM_LIST=$(ls 05_mapping/*.sorted.bam | tr '\n' ' ')
 
 $DOCKER_CMD featureCounts \
@@ -99,10 +99,10 @@ $DOCKER_CMD featureCounts \
     -T 4 \
     ${BAM_LIST}
 
-# --- PASO 6: REPORTE AGREGADO ---
-echo "--- PASO 6: Generando reporte MultiQC... ---"
+# --- STEP 6: AGGREGATED REPORT ---
+echo "--- STEP 6: Generating MultiQC report... ---"
 $DOCKER_CMD multiqc . -o 99_reports --force
 
-echo "--- PIPELINE COMPLETADO (v4.6 - Versión Definitiva) ---"
-echo "Revisa la matriz de conteos en: 06_counts/counts_matrix.txt"
-echo "Revisa el reporte final en: 99_reports/multiqc_report.html"
+echo "--- PIPELINE COMPLETED (v4.6 - Final Version) ---"
+echo "Check the count matrix at: 06_counts/counts_matrix.txt"
+echo "Check the final report at: 99_reports/multiqc_report.html"
